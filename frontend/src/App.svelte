@@ -1,7 +1,7 @@
 <script lang="ts">
     import Button from "./lib/Button.svelte";
     import QuizCard from "./lib/QuizCard.svelte";
-    import { NetService } from "./service/net";
+    import { NetService, PacketTypes, type ChangeGameStatePacket } from "./service/net";
     import type { Quiz, QuizQuestion } from "./model/quiz";
 
   let quizzes :{_id: string, name: string}[] = [];
@@ -14,6 +14,11 @@
     switch (packet.id) {
       case 2:{
         currentQuestion = packet.question;
+        break;
+      }
+      case PacketTypes.ChangeGameState: {
+        let data = packet as ChangeGameStatePacket;
+        console.log(data.state);
         break;
       }
     }
@@ -31,12 +36,13 @@
 
   let code = "";
   let msg = "";
+  let name = "";
 
   function connect (){
     netService.sendPacket({
       id: 0,
-      code: "1234",
-      name: "kebib"
+      code: code,
+      name: name
     })
   }
 
@@ -58,6 +64,7 @@ Message: {msg}
   {/each}
 </div>
 <input bind:value={code} type="text" class="border" placeholder="Game code" />
+<input bind:value={name} type="text" class="border" placeholder="Name" />
 <Button on:click={connect}>Join game</Button>
 
 {#if currentQuestion != null}
