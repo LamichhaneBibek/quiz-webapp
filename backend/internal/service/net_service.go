@@ -6,16 +6,20 @@ import (
 	"fmt"
 
 	"github.com/LamichhaneBibek/quiz-webapp/internal/entity"
+	"github.com/LamichhaneBibek/quiz-webapp/internal/game"
 	"github.com/gofiber/contrib/websocket"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NetService struct {
 	quizeService *QuizService
+	games        []*game.Game
 }
 
 func NewNetService(quizService *QuizService) *NetService {
 	return &NetService{
 		quizeService: quizService,
+		games:        []*game.Game{},
 	}
 }
 
@@ -30,6 +34,10 @@ type HostGamePacket struct {
 
 type QestionShowPacket struct {
 	Question entity.QuizQuestion `json:"question"`
+}
+
+type ChangeGameStatePacket struct {
+	State game.GameState `json:"state"`
 }
 
 func (ns *NetService) packetIdToPacket(packetId uint8) any {
@@ -53,8 +61,21 @@ func (ns *NetService) packetToPacketId(packet any) (uint8, error) {
 		{
 			return 2, nil
 		}
+	case ChangeGameStatePacket:
+		{
+			return 3, nil
+		}
 	}
 	return 0, errors.New("invalid packet")
+}
+
+func (ns *NetService) getGamesByCode(code string) *game.Game {
+	for _, game := range ns.games {
+		if game.Code == code {
+			return game
+		}
+	}
+	return nil
 }
 
 func (ns *NetService) OnIncomingMessage(conn *websocket.Conn, mt int, msg []byte) {
@@ -80,12 +101,40 @@ func (ns *NetService) OnIncomingMessage(conn *websocket.Conn, mt int, msg []byte
 	switch data := packet.(type) {
 	case *ConnectPacket:
 		{
-			fmt.Println(data.Name, "wants to join the game", data.Code)
+			game := ns.getGamesByCode(data.Code)
+			if game == nil {
+				fmt.Println("game not found")
+				return
+			}
+
+			game.OnPlayerJoin(data.Name, conn)
 			break
 		}
 	case *HostGamePacket:
 		{
-			fmt.Println("User wants to host a quiz", data.QuidId)
+			quizId, err := primitive.ObjectIDFromHex(data.QuidId)
+			if err != nil {
+				fmt.Println("invalid quiz id")
+				return
+			}
+
+			quiz, err := ns.quizeService.quizCollection.GetQuizByID(quizId)
+			if err != nil {
+				fmt.Println("quiz not found")
+				return
+			}
+
+			if quiz == nil {
+				fmt.Println("quiz not found")
+				return
+			}
+			newGame := game.NewGame(*quiz, conn)
+			fmt.Println("new game created", newGame.Code)
+			ns.games = append(ns.games, &newGame)
+
+			ns.SendPacket(conn, ChangeGameStatePacket{
+				State: game.LobbyState,
+			})
 			break
 		}
 	}
