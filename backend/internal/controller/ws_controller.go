@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"log"
-
 	"github.com/LamichhaneBibek/quiz-webapp/internal/service"
 	"github.com/gofiber/contrib/websocket"
 )
@@ -26,7 +24,7 @@ func (wc *WebsocketController) HandleWS(conn *websocket.Conn) {
 
 	for {
 		if mt, msg, err = conn.ReadMessage(); err != nil {
-			log.Println("read:", err)
+			wc.netService.OnDisconnect(conn)
 			break
 		}
 		wc.netService.OnIncomingMessage(conn, mt, msg)
