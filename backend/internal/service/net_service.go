@@ -6,20 +6,20 @@ import (
 	"fmt"
 
 	"github.com/LamichhaneBibek/quiz-webapp/internal/entity"
-	"github.com/LamichhaneBibek/quiz-webapp/internal/game"
 	"github.com/gofiber/contrib/websocket"
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NetService struct {
 	quizeService *QuizService
-	games        []*game.Game
+	games        []*Game
 }
 
 func NewNetService(quizService *QuizService) *NetService {
 	return &NetService{
 		quizeService: quizService,
-		games:        []*game.Game{},
+		games:        []*Game{},
 	}
 }
 
@@ -32,12 +32,39 @@ type HostGamePacket struct {
 	QuidId string `json:"quiz_id"`
 }
 
-type QestionShowPacket struct {
+type QuestionShowPacket struct {
 	Question entity.QuizQuestion `json:"question"`
 }
 
 type ChangeGameStatePacket struct {
-	State game.GameState `json:"state"`
+	State GameState `json:"state"`
+}
+
+type PlayerJoinPacket struct {
+	Player Player `json:"player"`
+}
+
+type PlayerDisconnectPacket struct {
+	PlayerId uuid.UUID `json:"playerId"`
+}
+
+type StartGamePacket struct {
+}
+
+type TickPacket struct {
+	Tick int `json:"tick"`
+}
+
+type QuestionAnswerPacket struct {
+	Question int `json:"question"`
+}
+
+type PlayerRevealPacket struct {
+	Points int `json:"points"`
+}
+
+type LeaderboardPacket struct {
+	Points []LeaderboardEntry `json:"points"`
 }
 
 func (ns *NetService) packetIdToPacket(packetId uint8) any {
@@ -50,6 +77,14 @@ func (ns *NetService) packetIdToPacket(packetId uint8) any {
 		{
 			return &HostGamePacket{}
 		}
+	case 5:
+		{
+			return &StartGamePacket{}
+		}
+	case 7:
+		{
+			return &QuestionAnswerPacket{}
+		}
 	}
 
 	return nil
@@ -57,25 +92,79 @@ func (ns *NetService) packetIdToPacket(packetId uint8) any {
 
 func (ns *NetService) packetToPacketId(packet any) (uint8, error) {
 	switch packet.(type) {
-	case QestionShowPacket:
+	case QuestionShowPacket:
 		{
 			return 2, nil
+		}
+	case HostGamePacket:
+		{
+			return 1, nil
 		}
 	case ChangeGameStatePacket:
 		{
 			return 3, nil
 		}
+	case PlayerJoinPacket:
+		{
+			return 4, nil
+		}
+	case TickPacket:
+		{
+			return 6, nil
+		}
+	case PlayerRevealPacket:
+		{
+			return 8, nil
+		}
+	case LeaderboardPacket:
+		{
+			return 9, nil
+		}
+	case PlayerDisconnectPacket:
+		{
+			return 10, nil
+		}
 	}
 	return 0, errors.New("invalid packet")
 }
 
-func (ns *NetService) getGamesByCode(code string) *game.Game {
+func (ns *NetService) getGamesByCode(code string) *Game {
 	for _, game := range ns.games {
 		if game.Code == code {
 			return game
 		}
 	}
 	return nil
+}
+
+func (ns *NetService) getGameByHost(host *websocket.Conn) *Game {
+	for _, game := range ns.games {
+		if game.Host == host {
+			return game
+		}
+	}
+	return nil
+}
+
+func (c *NetService) getGameByPlayer(con *websocket.Conn) (*Game, *Player) {
+	for _, game := range c.games {
+		for _, player := range game.Players {
+			if player.Connection == con {
+				return game, player
+			}
+		}
+	}
+
+	return nil, nil
+}
+
+func (c *NetService) OnDisconnect(con *websocket.Conn) {
+	game, player := c.getGameByPlayer(con)
+	if game == nil {
+		return
+	}
+
+	game.OnPlayerDisconnect(player)
 }
 
 func (ns *NetService) OnIncomingMessage(conn *websocket.Conn, mt int, msg []byte) {
@@ -128,13 +217,36 @@ func (ns *NetService) OnIncomingMessage(conn *websocket.Conn, mt int, msg []byte
 				fmt.Println("quiz not found")
 				return
 			}
-			newGame := game.NewGame(*quiz, conn)
-			fmt.Println("new game created", newGame.Code)
-			ns.games = append(ns.games, &newGame)
+			game := newGame(*quiz, conn, ns)
+			ns.games = append(ns.games, &game)
+
+			ns.SendPacket(conn, HostGamePacket{
+				QuidId: game.Code,
+			})
 
 			ns.SendPacket(conn, ChangeGameStatePacket{
-				State: game.LobbyState,
+				State: game.State,
 			})
+			break
+		}
+	case *StartGamePacket:
+		{
+			game := ns.getGameByHost(conn)
+			if game == nil {
+				fmt.Println("game not found")
+				return
+			}
+			game.StartOrSkip()
+			break
+		}
+	case *QuestionAnswerPacket:
+		{
+			game, player := ns.getGameByPlayer(conn)
+			if game == nil {
+				return
+			}
+
+			game.OnPlayerAnswer(data.Question, player)
 			break
 		}
 	}
