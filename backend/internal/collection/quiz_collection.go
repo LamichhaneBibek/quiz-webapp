@@ -45,3 +45,13 @@ func (qc *QuizCollection) GetAllQuizzes() ([]entity.Quiz, error) {
 	}
 	return quizzes, nil
 }
+
+func (c QuizCollection) UpdateQuiz(quiz entity.Quiz) error {
+	_, err := c.collection.UpdateOne(context.Background(), bson.M{
+		"_id": quiz.ID,
+	}, bson.M{
+		"$set": quiz,
+	})
+
+	return err
+}
