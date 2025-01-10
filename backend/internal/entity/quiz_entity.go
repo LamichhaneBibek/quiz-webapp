@@ -13,6 +13,7 @@ type Quiz struct {
 type QuizQuestion struct {
 	ID      string       `json:"id"`
 	Name    string       `json:"name"`
+	Time    int          `json:"time"`
 	Options []QuizOption `json:"options"`
 }
 
